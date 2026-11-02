@@ -3,12 +3,27 @@ on:
   schedule: [{ cron: "*/5 * * * *" }]
   workflow_dispatch:
     inputs: { url: { default: "https://coenttb.com/licenses/health" } }
+permissions:
+  issues: write
 jobs:
   health:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
+    env:
+      URL: "${{ inputs.url || 'https://coenttb.com/licenses/health' }}"
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      - env: { URL: "${{ inputs.url || 'https://coenttb.com/licenses/health' }}" }
+      - id: check
         run: |
-          body=$(curl -fsS -m 20 --retry 2 --retry-delay 10 "$URL") || { echo "::error::$URL did not answer"; exit 1; }
-          case "$body" in "ok: live, test") echo "$body" ;; *) echo "::error::$URL answered: $body"; exit 1 ;; esac
+          body=$(curl -fsS -m 20 --retry 2 --retry-delay 10 "$URL" 2>&1) || { echo "answer=did not answer: $body" >> "$GITHUB_OUTPUT"; exit 1; }
+          echo "$body"
+          case "$body" in "ok: live, test") ;; *) echo "answer=answered: $body" >> "$GITHUB_OUTPUT"; exit 1 ;; esac
+      - if: failure()
+        env: { ANSWER: "${{ steps.check.outputs.answer }}" }
+        run: |
+          open=$(gh issue list --state open --label down --json number --jq '.[0].number')
+          [ -n "$open" ] || gh issue create --label down --title "Down: $URL" --body "$URL $ANSWER (run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+      - if: success()
+        run: |
+          for n in $(gh issue list --state open --label down --json number --jq '.[].number'); do gh issue close "$n" --comment "Back up: $URL answers ok: live, test"; done
