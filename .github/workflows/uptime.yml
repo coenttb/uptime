@@ -1,0 +1,14 @@
+name: Uptime
+on:
+  schedule: [{ cron: "*/5 * * * *" }]
+  workflow_dispatch:
+    inputs: { url: { default: "https://coenttb.com/licenses/health" } }
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env: { URL: "${{ inputs.url || 'https://coenttb.com/licenses/health' }}" }
+        run: |
+          body=$(curl -fsS -m 20 --retry 2 --retry-delay 10 "$URL") || { echo "::error::$URL did not answer"; exit 1; }
+          case "$body" in "ok: live, test") echo "$body" ;; *) echo "::error::$URL answered: $body"; exit 1 ;; esac
